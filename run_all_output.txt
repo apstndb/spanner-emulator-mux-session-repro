@@ -1,0 +1,25 @@
+Building...
+Running tests with gcr.io/cloud-spanner-emulator/emulator:1.5.50...
+
+
+============================== Results ==============================
+Result RW env     INSERT     DELETE         
+---------------------------------------------------------------------
+BUG    true       rw         stmt-mutation  
+PASS   true       rw         apply          
+PASS   true       rw         stmt-dml       
+BUG    true       stmt       stmt-mutation  
+PASS   true       stmt       apply          
+PASS   true       stmt       stmt-dml       
+PASS   false      rw         stmt-mutation  
+PASS   false      rw         apply          
+PASS   false      rw         stmt-dml       
+PASS   false      stmt       stmt-mutation  
+PASS   false      stmt       apply          
+PASS   false      stmt       stmt-dml       
+BUG    unset      rw         stmt-mutation  
+PASS   unset      rw         apply          
+PASS   unset      rw         stmt-dml       
+BUG    unset      stmt       stmt-mutation  
+PASS   unset      stmt       apply          
+PASS   unset      stmt       stmt-dml       
