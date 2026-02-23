@@ -2,24 +2,36 @@ Building...
 Running tests with gcr.io/cloud-spanner-emulator/emulator:1.5.50...
 
 
-============================== Results ==============================
-Result RW env     INSERT     DELETE         
----------------------------------------------------------------------
-BUG    true       rw         stmt-mutation  
-PASS   true       rw         apply          
-PASS   true       rw         stmt-dml       
-BUG    true       stmt       stmt-mutation  
-PASS   true       stmt       apply          
-PASS   true       stmt       stmt-dml       
-PASS   false      rw         stmt-mutation  
-PASS   false      rw         apply          
-PASS   false      rw         stmt-dml       
-PASS   false      stmt       stmt-mutation  
-PASS   false      stmt       apply          
-PASS   false      stmt       stmt-dml       
-BUG    unset      rw         stmt-mutation  
-PASS   unset      rw         apply          
-PASS   unset      rw         stmt-dml       
-BUG    unset      stmt       stmt-mutation  
-PASS   unset      stmt       apply          
-PASS   unset      stmt       stmt-dml       
+================================= Results =================================
+Result RW env     DELETE          begin     
+---------------------------------------------------------------------------
+BUG    true       stmt-mutation   default   
+PASS   true       stmt-mutation   inlined   
+BUG    true       stmt-mutation   explicit  
+PASS   true       rw-mutation     default   
+PASS   true       rw-mutation     inlined   
+BUG    true       rw-mutation     explicit  
+PASS   true       apply           default   
+PASS   true       stmt-dml        default   
+PASS   true       stmt-dml        inlined   
+PASS   true       stmt-dml        explicit  
+PASS   false      stmt-mutation   default   
+PASS   false      stmt-mutation   inlined   
+PASS   false      stmt-mutation   explicit  
+PASS   false      rw-mutation     default   
+PASS   false      rw-mutation     inlined   
+PASS   false      rw-mutation     explicit  
+PASS   false      apply           default   
+PASS   false      stmt-dml        default   
+PASS   false      stmt-dml        inlined   
+PASS   false      stmt-dml        explicit  
+BUG    unset      stmt-mutation   default   
+PASS   unset      stmt-mutation   inlined   
+BUG    unset      stmt-mutation   explicit  
+PASS   unset      rw-mutation     default   
+PASS   unset      rw-mutation     inlined   
+BUG    unset      rw-mutation     explicit  
+PASS   unset      apply           default   
+PASS   unset      stmt-dml        default   
+PASS   unset      stmt-dml        inlined   
+PASS   unset      stmt-dml        explicit  

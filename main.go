@@ -3,7 +3,7 @@
 // Multiplexed session RW transactions silently lose writes.
 //
 // Usage:
-//   go run main.go -insert=<rw|stmt> -delete=<stmt-mutation|apply|stmt-dml>
+//   go run main.go -delete=<stmt-mutation|rw-mutation|apply|stmt-dml> -begin=<default|inlined|explicit>
 //
 // Prerequisites:
 //   SPANNER_EMULATOR_HOST=localhost:9010
@@ -28,10 +28,23 @@ import (
 const db = "projects/test-project/instances/test-instance/databases/test-database"
 
 var (
-	insertMode = flag.String("insert", "rw", "INSERT mode: rw (ReadWriteTransaction) or stmt (StmtBasedTransaction)")
-	deleteMode = flag.String("delete", "stmt-mutation", "DELETE mode: stmt-mutation, apply, or stmt-dml")
+	deleteMode = flag.String("delete", "stmt-mutation", "DELETE mode: stmt-mutation, rw-mutation, apply, or stmt-dml")
+	beginMode  = flag.String("begin", "default", "BeginTransaction mode: default, inlined, or explicit")
 	skipSetup  = flag.Bool("skip-setup", false, "skip instance/database creation")
 )
+
+func parseBeginOption() (spanner.BeginTransactionOption, error) {
+	switch *beginMode {
+	case "default":
+		return spanner.DefaultBeginTransaction, nil
+	case "inlined":
+		return spanner.InlinedBeginTransaction, nil
+	case "explicit":
+		return spanner.ExplicitBeginTransaction, nil
+	default:
+		return 0, fmt.Errorf("unknown begin mode: %s", *beginMode)
+	}
+}
 
 func main() {
 	flag.Parse()
@@ -98,6 +111,14 @@ func setup(ctx context.Context) error {
 }
 
 func reproduce(ctx context.Context) error {
+	beginOpt, err := parseBeginOption()
+	if err != nil {
+		return err
+	}
+	txnOpts := spanner.TransactionOptions{
+		BeginTransactionOption: beginOpt,
+	}
+
 	client, err := spanner.NewClientWithConfig(ctx, db,
 		spanner.ClientConfig{
 			DisableNativeMetrics: true,
@@ -113,20 +134,12 @@ func reproduce(ctx context.Context) error {
 	}
 	defer client.Close()
 
-	// Step 1: INSERT
-	switch *insertMode {
-	case "rw":
-		log.Println("INSERT: ReadWriteTransaction (DML)")
-		_, err = client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-			_, err := txn.Update(ctx, spanner.Statement{SQL: "INSERT INTO T (PK, Val) VALUES (1, 1)"})
-			return err
-		})
-	case "stmt":
-		log.Println("INSERT: StmtBasedTransaction (DML)")
-		err = execStmtDML(ctx, client, "INSERT INTO T (PK, Val) VALUES (1, 1)")
-	default:
-		return fmt.Errorf("unknown insert mode: %s", *insertMode)
-	}
+	// Step 1: INSERT via DML (fixed, not relevant to the bug).
+	log.Println("INSERT: ReadWriteTransaction (DML)")
+	_, err = client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		_, err := txn.Update(ctx, spanner.Statement{SQL: "INSERT INTO T (PK, Val) VALUES (1, 1)"})
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("insert: %w", err)
 	}
@@ -134,16 +147,24 @@ func reproduce(ctx context.Context) error {
 	// Step 2: DELETE
 	switch *deleteMode {
 	case "stmt-mutation":
-		log.Println("DELETE: StmtBasedTransaction (BufferWrite Mutation)")
-		err = execStmtMutation(ctx, client)
+		log.Printf("DELETE: StmtBasedTransaction (BufferWrite, begin=%s)", *beginMode)
+		err = execStmtMutation(ctx, client, txnOpts)
+	case "rw-mutation":
+		log.Printf("DELETE: ReadWriteTransaction (BufferWrite, begin=%s)", *beginMode)
+		_, err = client.ReadWriteTransactionWithOptions(ctx,
+			func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+				return txn.BufferWrite([]*spanner.Mutation{
+					spanner.Delete("T", spanner.Key{1}),
+				})
+			}, txnOpts)
 	case "apply":
-		log.Println("DELETE: client.Apply (Mutation)")
+		log.Println("DELETE: client.Apply (begin option N/A)")
 		_, err = client.Apply(ctx, []*spanner.Mutation{
 			spanner.Delete("T", spanner.Key{1}),
 		})
 	case "stmt-dml":
-		log.Println("DELETE: StmtBasedTransaction (DML)")
-		err = execStmtDML(ctx, client, "DELETE FROM T WHERE PK = 1")
+		log.Printf("DELETE: StmtBasedTransaction (DML, begin=%s)", *beginMode)
+		err = execStmtDML(ctx, client, txnOpts, "DELETE FROM T WHERE PK = 1")
 	default:
 		return fmt.Errorf("unknown delete mode: %s", *deleteMode)
 	}
@@ -167,8 +188,8 @@ func reproduce(ctx context.Context) error {
 	return fmt.Errorf("BUG: row PK=%d still exists after DELETE succeeded without error", pk)
 }
 
-func execStmtDML(ctx context.Context, client *spanner.Client, sql string) error {
-	txn, err := spanner.NewReadWriteStmtBasedTransaction(ctx, client)
+func execStmtDML(ctx context.Context, client *spanner.Client, opts spanner.TransactionOptions, sql string) error {
+	txn, err := spanner.NewReadWriteStmtBasedTransactionWithOptions(ctx, client, opts)
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
 	}
@@ -181,8 +202,8 @@ func execStmtDML(ctx context.Context, client *spanner.Client, sql string) error 
 	return err
 }
 
-func execStmtMutation(ctx context.Context, client *spanner.Client) error {
-	txn, err := spanner.NewReadWriteStmtBasedTransaction(ctx, client)
+func execStmtMutation(ctx context.Context, client *spanner.Client, opts spanner.TransactionOptions) error {
+	txn, err := spanner.NewReadWriteStmtBasedTransactionWithOptions(ctx, client, opts)
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
 	}

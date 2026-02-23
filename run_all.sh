@@ -13,8 +13,8 @@ go build -o repro . || exit 1
 results=()
 
 run_test() {
-  local rw_env="$1" insert="$2" delete="$3"
-  local label="RW=${rw_env:-unset} insert=${insert} delete=${delete}"
+  local rw_env="$1" delete="$2" begin="$3"
+  local label="RW=${rw_env:-unset} delete=${delete} begin=${begin}"
 
   # Restart emulator.
   docker rm -f "$CONTAINER_NAME" &>/dev/null || true
@@ -28,7 +28,8 @@ run_test() {
   fi
 
   # Run.
-  if env "${env[@]}" ./repro -insert="$insert" -delete="$delete" 2>&1 | tail -1 | grep -q "^PASS"; then
+  local args=(-delete="$delete" -begin="$begin")
+  if env "${env[@]}" ./repro "${args[@]}" 2>&1 | tail -1 | grep -q "^PASS"; then
     results+=("PASS  $label")
   else
     results+=("BUG   $label")
@@ -38,11 +39,14 @@ run_test() {
 echo "Running tests with ${EMULATOR_IMAGE}..."
 echo ""
 
-# RW env variants × insert variants × delete variants
 for rw_env in "true" "false" ""; do
-  for insert in "rw" "stmt"; do
-    for delete in "stmt-mutation" "apply" "stmt-dml"; do
-      run_test "$rw_env" "$insert" "$delete"
+  for delete in "stmt-mutation" "rw-mutation" "apply" "stmt-dml"; do
+    for begin in "default" "inlined" "explicit"; do
+      # client.Apply ignores begin option, only run once with default.
+      if [[ "$delete" == "apply" && "$begin" != "default" ]]; then
+        continue
+      fi
+      run_test "$rw_env" "$delete" "$begin"
     done
   done
 done
@@ -52,15 +56,14 @@ docker rm -f "$CONTAINER_NAME" &>/dev/null || true
 
 # Print results.
 echo ""
-echo "============================== Results =============================="
-printf "%-6s %-10s %-10s %-15s\n" "Result" "RW env" "INSERT" "DELETE"
-echo "---------------------------------------------------------------------"
+echo "================================= Results ================================="
+printf "%-6s %-10s %-15s %-10s\n" "Result" "RW env" "DELETE" "begin"
+echo "---------------------------------------------------------------------------"
 for r in "${results[@]}"; do
   result="${r%% *}"
   rest="${r#* }"
-  # Parse "RW=xxx insert=yyy delete=zzz"
   rw_val=$(echo "$rest" | sed 's/.*RW=\([^ ]*\).*/\1/')
-  ins_val=$(echo "$rest" | sed 's/.*insert=\([^ ]*\).*/\1/')
   del_val=$(echo "$rest" | sed 's/.*delete=\([^ ]*\).*/\1/')
-  printf "%-6s %-10s %-10s %-15s\n" "$result" "$rw_val" "$ins_val" "$del_val"
+  begin_val=$(echo "$rest" | sed 's/.*begin=\([^ ]*\).*/\1/')
+  printf "%-6s %-10s %-15s %-10s\n" "$result" "$rw_val" "$del_val" "$begin_val"
 done
